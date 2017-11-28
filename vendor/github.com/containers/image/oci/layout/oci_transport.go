@@ -177,16 +177,17 @@ func (ref ociReference) PolicyConfigurationNamespaces() []string {
 	return res
 }
 
-// NewImage returns a types.Image for this reference, possibly specialized for this ImageTransport.
-// The caller must call .Close() on the returned Image.
+// NewImage returns a types.ImageCloser for this reference, possibly specialized for this ImageTransport.
+// The caller must call .Close() on the returned ImageCloser.
 // NOTE: If any kind of signature verification should happen, build an UnparsedImage from the value returned by NewImageSource,
 // verify that UnparsedImage, and convert it into a real Image via image.FromUnparsedImage.
-func (ref ociReference) NewImage(ctx *types.SystemContext) (types.Image, error) {
+// WARNING: This may not do the right thing for a manifest list, see image.FromSource for details.
+func (ref ociReference) NewImage(ctx *types.SystemContext) (types.ImageCloser, error) {
 	src, err := newImageSource(ctx, ref)
 	if err != nil {
 		return nil, err
 	}
-	return image.FromSource(src)
+	return image.FromSource(ctx, src)
 }
 
 // getIndex returns a pointer to the index references by this ociReference. If an error occurs opening an index nil is returned together
@@ -261,7 +262,7 @@ func (ref ociReference) NewImageSource(ctx *types.SystemContext) (types.ImageSou
 // NewImageDestination returns a types.ImageDestination for this reference.
 // The caller must call .Close() on the returned ImageDestination.
 func (ref ociReference) NewImageDestination(ctx *types.SystemContext) (types.ImageDestination, error) {
-	return newImageDestination(ref)
+	return newImageDestination(ctx, ref)
 }
 
 // DeleteImage deletes the named image from the registry, if supported.
@@ -280,9 +281,13 @@ func (ref ociReference) indexPath() string {
 }
 
 // blobPath returns a path for a blob within a directory using OCI image-layout conventions.
-func (ref ociReference) blobPath(digest digest.Digest) (string, error) {
+func (ref ociReference) blobPath(digest digest.Digest, sharedBlobDir string) (string, error) {
 	if err := digest.Validate(); err != nil {
 		return "", errors.Wrapf(err, "unexpected digest reference %s", digest)
 	}
-	return filepath.Join(ref.dir, "blobs", digest.Algorithm().String(), digest.Hex()), nil
+	blobDir := filepath.Join(ref.dir, "blobs")
+	if sharedBlobDir != "" {
+		blobDir = sharedBlobDir
+	}
+	return filepath.Join(blobDir, digest.Algorithm().String(), digest.Hex()), nil
 }
